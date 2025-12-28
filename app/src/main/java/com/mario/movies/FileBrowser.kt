@@ -49,6 +49,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import com.mario.movies.data.DatabaseHelper
+import com.mario.movies.data.DatabaseUpdater
 import com.mario.movies.data.FileItem
 import com.mario.movies.data.Links
 import com.mario.movies.data.TokenManager
@@ -63,6 +64,7 @@ fun FileBrowser(
     val context = LocalContext.current
     val dbHelper = remember { DatabaseHelper.getInstance(context) }
     val tokenManager = remember { TokenManager(context) }
+    val dbUpdater = remember { DatabaseUpdater(context) }
     val clipboardManager = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     
@@ -80,6 +82,16 @@ fun FileBrowser(
     var generatedLinks by remember { mutableStateOf<Links?>(null) }
     var isGeneratingLink by remember { mutableStateOf(false) }
 
+    // Update state
+    var isCheckingUpdates by remember { mutableStateOf(true) }
+    var updateTrigger by remember { mutableStateOf(0) } // Used to refresh items after update
+
+    LaunchedEffect(Unit) {
+        dbUpdater.checkAndUpdateDatabase()
+        isCheckingUpdates = false
+        updateTrigger++
+    }
+
     // Handle system back button
     BackHandler(enabled = currentPath != rootPath || isSearching) {
         if (isSearching) {
@@ -88,10 +100,10 @@ fun FileBrowser(
         } else if (currentPath != rootPath) {
             val parent = currentPath.substringBeforeLast('/')
             // Ensure we don't go beyond the rootPath
-            if (parent.length >= rootPath.length) {
-                 currentPath = parent
+            currentPath = if (parent.length >= rootPath.length) {
+                 parent
             } else {
-                 currentPath = rootPath
+                 rootPath
             }
         }
     }
@@ -100,7 +112,9 @@ fun FileBrowser(
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var debugInfo by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(currentPath, isSearching, searchQuery) {
+    LaunchedEffect(currentPath, isSearching, searchQuery, updateTrigger, isCheckingUpdates) {
+        if (isCheckingUpdates) return@LaunchedEffect
+        
         items = null // Start loading
         errorMsg = null
         debugInfo = null
@@ -175,10 +189,10 @@ fun FileBrowser(
                     IconButton(onClick = { 
                         val parent = currentPath.substringBeforeLast('/')
                         // Ensure we don't go beyond the rootPath
-                        if (parent.length >= rootPath.length) {
-                             currentPath = parent
+                        currentPath = if (parent.length >= rootPath.length) {
+                             parent
                         } else {
-                             currentPath = rootPath
+                             rootPath
                         }
                     }) {
                         Icon(
@@ -208,6 +222,16 @@ fun FileBrowser(
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             val currentItems = items
             when {
+                isCheckingUpdates -> {
+                    Column(
+                        modifier = Modifier.align(Alignment.Center),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        CircularProgressIndicator()
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("Checking for database updates...")
+                    }
+                }
                 currentItems == null -> {
                     CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                 }
@@ -298,7 +322,7 @@ fun FileBrowser(
                                         }
                                         context.startActivity(intent)
                                     } catch (e: Exception) {
-                                        // Handle case where no app can open the link, maybe show a toast
+                                        // Handle case where no app can open the link
                                     }
                                 },
                                 modifier = Modifier.fillMaxWidth()
@@ -383,5 +407,5 @@ fun formatSize(size: Long): String {
     if (size <= 0) return "0 B"
     val units = arrayOf("B", "KB", "MB", "GB", "TB")
     val digitGroups = (Math.log10(size.toDouble()) / Math.log10(1024.0)).toInt()
-    return String.format("%.1f %s", size / Math.pow(1024.0, digitGroups.toDouble()), units[digitGroups])
+    return String.format(java.util.Locale.US, "%.1f %s", size / Math.pow(1024.0, digitGroups.toDouble()), units[digitGroups])
 }

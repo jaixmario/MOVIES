@@ -13,5 +13,5 @@
 .externalNativeBuild
 .cxx
 local.properties
-/.app/src/main/assets/user_token.json
-/.app/src/main/assets/DB.db
+/app/src/main/assets/user_token.json
+/app/src/main/assets/DB.db

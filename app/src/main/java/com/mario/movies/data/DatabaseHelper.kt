@@ -4,6 +4,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import android.util.Log
+import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
@@ -28,9 +29,11 @@ class DatabaseHelper(private val context: Context) : SQLiteOpenHelper(context, D
     private var dbPath: String = context.getDatabasePath(DB_NAME).path
 
     override fun onCreate(db: SQLiteDatabase?) {
+        db?.execSQL("CREATE TABLE IF NOT EXISTS version (id INTEGER PRIMARY KEY AUTOINCREMENT, db_version TEXT UNIQUE)")
     }
 
     override fun onUpgrade(db: SQLiteDatabase?, oldVersion: Int, newVersion: Int) {
+        db?.execSQL("CREATE TABLE IF NOT EXISTS version (id INTEGER PRIMARY KEY AUTOINCREMENT, db_version TEXT UNIQUE)")
     }
 
     private fun ensureDatabase() {
@@ -39,6 +42,10 @@ class DatabaseHelper(private val context: Context) : SQLiteOpenHelper(context, D
             this.readableDatabase.close() 
             try {
                 copyDatabase()
+                // After copying from assets, ensure the version table exists
+                val db = this.writableDatabase
+                db.execSQL("CREATE TABLE IF NOT EXISTS version (id INTEGER PRIMARY KEY AUTOINCREMENT, db_version TEXT UNIQUE)")
+                db.close()
             } catch (e: IOException) {
                 throw RuntimeException("Error copying database", e)
             }
@@ -75,6 +82,56 @@ class DatabaseHelper(private val context: Context) : SQLiteOpenHelper(context, D
         }
     }
     
+    fun getCurrentVersion(): String? {
+        ensureDatabase()
+        val db = try { this.readableDatabase } catch (e: Exception) { return null }
+        var version: String? = null
+        try {
+            val cursor = db.rawQuery("SELECT db_version FROM version ORDER BY id DESC LIMIT 1", null)
+            if (cursor.moveToFirst()) {
+                version = cursor.getString(0)
+            }
+            cursor.close()
+        } catch (e: Exception) {
+            Log.e("DatabaseHelper", "Error getting version: ${e.message}")
+            // Table might not exist yet if it was an old DB
+            try {
+                db.execSQL("CREATE TABLE IF NOT EXISTS version (id INTEGER PRIMARY KEY AUTOINCREMENT, db_version TEXT UNIQUE)")
+            } catch (ignore: Exception) {}
+        }
+        return version
+    }
+
+    fun updateDatabaseVersion(newVersion: String) {
+        val db = this.writableDatabase
+        try {
+            db.execSQL("DELETE FROM version") // Keep only the latest version
+            db.execSQL("INSERT INTO version (db_version) VALUES (?)", arrayOf(newVersion))
+        } catch (e: Exception) {
+            Log.e("DatabaseHelper", "Error updating version: ${e.message}")
+        }
+    }
+
+    fun replaceDatabaseFile(inputStream: InputStream): Boolean {
+        this.close() // Close all connections before replacing file
+        val dbFile = context.getDatabasePath(DB_NAME)
+        return try {
+            val outputStream = FileOutputStream(dbFile)
+            val buffer = ByteArray(1024)
+            var length: Int
+            while (inputStream.read(buffer).also { length = it } > 0) {
+                outputStream.write(buffer, 0, length)
+            }
+            outputStream.flush()
+            outputStream.close()
+            inputStream.close()
+            true
+        } catch (e: Exception) {
+            Log.e("DatabaseHelper", "Error replacing database file", e)
+            false
+        }
+    }
+    
     fun getDebugInfo(): String {
         ensureDatabase()
         val sb = StringBuilder()
@@ -85,6 +142,7 @@ class DatabaseHelper(private val context: Context) : SQLiteOpenHelper(context, D
         }
 
         try {
+            sb.append("DB Version Table: ${getCurrentVersion() ?: "Empty"}\n")
             val countCursor = db.rawQuery("SELECT count(*) FROM items", null)
             if (countCursor.moveToFirst()) {
                 sb.append("Total items: ${countCursor.getInt(0)}\n")
