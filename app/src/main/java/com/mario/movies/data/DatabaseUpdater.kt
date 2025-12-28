@@ -1,5 +1,6 @@
 package com.mario.movies.data
 
+import android.content.Context
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonObject
@@ -7,7 +8,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import android.content.Context
 
 data class RemoteDbInfo(
     val version: String,
@@ -28,7 +28,10 @@ class DatabaseUpdater(private val context: Context) {
     suspend fun checkAndUpdateDatabase(): Boolean = withContext(Dispatchers.IO) {
         try {
             // 1. Fetch remote config
-            val remoteInfo = fetchRemoteConfig() ?: return@withContext false
+            val remoteInfo = fetchRemoteConfig() 
+            if (remoteInfo == null) {
+                return@withContext false
+            }
             
             // 2. Get local version
             val localVersion = dbHelper.getCurrentVersion()
@@ -41,12 +44,15 @@ class DatabaseUpdater(private val context: Context) {
             }
 
             // 3. Versions don't match, download new database
-            Log.d("DatabaseUpdater", "Updating database to ${remoteInfo.version}...")
-            val downloadUrl = getDownloadUrl(remoteInfo.file_id) ?: return@withContext false
+            Log.d("DatabaseUpdater", "New version found: ${remoteInfo.version}. Starting download...")
+            val downloadUrl = getDownloadUrl(remoteInfo.file_id) 
+            if (downloadUrl == null) {
+                return@withContext false
+            }
             
             val success = downloadAndReplaceDb(downloadUrl, remoteInfo.version)
             if (success) {
-                Log.d("DatabaseUpdater", "Database updated successfully.")
+                Log.d("DatabaseUpdater", "Database updated to ${remoteInfo.version}")
             }
             return@withContext success
         } catch (e: Exception) {
@@ -67,8 +73,12 @@ class DatabaseUpdater(private val context: Context) {
                     version = dbObj.get("version").asString,
                     file_id = dbObj.get("file_id").asString
                 )
-            } else null
+            } else {
+                Log.e("DatabaseUpdater", "Config fetch failed: ${response.code}")
+                null
+            }
         } catch (e: Exception) {
+            Log.e("DatabaseUpdater", "Config fetch exception", e)
             null
         }
     }
@@ -89,9 +99,16 @@ class DatabaseUpdater(private val context: Context) {
                 val responseObj = gson.fromJson(json, JsonObject::class.java)
                 if (responseObj.has("@microsoft.graph.downloadUrl")) {
                     responseObj.get("@microsoft.graph.downloadUrl").asString
-                } else null
-            } else null
+                } else {
+                    Log.e("DatabaseUpdater", "Download URL missing in response")
+                    null
+                }
+            } else {
+                Log.e("DatabaseUpdater", "Failed to get item info: ${response.code} ${response.message}")
+                null
+            }
         } catch (e: Exception) {
+            Log.e("DatabaseUpdater", "OneDrive API exception", e)
             null
         }
     }
@@ -110,6 +127,7 @@ class DatabaseUpdater(private val context: Context) {
             }
             false
         } catch (e: Exception) {
+            Log.e("DatabaseUpdater", "Download/Replace exception", e)
             false
         }
     }

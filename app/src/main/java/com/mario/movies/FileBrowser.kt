@@ -85,9 +85,11 @@ fun FileBrowser(
     // Update state
     var isCheckingUpdates by remember { mutableStateOf(true) }
     var updateTrigger by remember { mutableStateOf(0) } // Used to refresh items after update
+    var dbVersion by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         dbUpdater.checkAndUpdateDatabase()
+        dbVersion = withContext(Dispatchers.IO) { dbHelper.getCurrentVersion() }
         isCheckingUpdates = false
         updateTrigger++
     }
@@ -202,7 +204,11 @@ fun FileBrowser(
                     }
                 }
                 
-                val displayTitle = if (currentPath == rootPath) "Home" else currentPath.removePrefix(rootPath).trimStart('/')
+                val displayTitle = if (currentPath == rootPath) {
+                    if (dbVersion != null) "Home ($dbVersion)" else "Home"
+                } else {
+                    currentPath.removePrefix(rootPath).trimStart('/')
+                }
                 Text(
                     text = displayTitle,
                     style = MaterialTheme.typography.titleMedium,

@@ -13,7 +13,7 @@ import java.io.OutputStream
 class DatabaseHelper(private val context: Context) : SQLiteOpenHelper(context, DB_NAME, null, DB_VERSION) {
 
     companion object {
-        private const val DB_NAME = "MoviesData.db"
+        private const val DB_NAME = "DB.db"
         private const val ASSET_NAME = "DB.db"
         private const val DB_VERSION = 1
         private var instance: DatabaseHelper? = null
@@ -37,6 +37,12 @@ class DatabaseHelper(private val context: Context) : SQLiteOpenHelper(context, D
     }
 
     private fun ensureDatabase() {
+        // Cleanup old database name if it exists (transitioning to DB.db)
+        val oldDbFile = context.getDatabasePath("MoviesData.db")
+        if (oldDbFile.exists()) {
+            oldDbFile.delete()
+        }
+
         if (!checkDatabase()) {
             Log.d("DatabaseHelper", "Database not found, creating...")
             this.readableDatabase.close() 
@@ -94,7 +100,6 @@ class DatabaseHelper(private val context: Context) : SQLiteOpenHelper(context, D
             cursor.close()
         } catch (e: Exception) {
             Log.e("DatabaseHelper", "Error getting version: ${e.message}")
-            // Table might not exist yet if it was an old DB
             try {
                 db.execSQL("CREATE TABLE IF NOT EXISTS version (id INTEGER PRIMARY KEY AUTOINCREMENT, db_version TEXT UNIQUE)")
             } catch (ignore: Exception) {}
@@ -105,7 +110,7 @@ class DatabaseHelper(private val context: Context) : SQLiteOpenHelper(context, D
     fun updateDatabaseVersion(newVersion: String) {
         val db = this.writableDatabase
         try {
-            db.execSQL("DELETE FROM version") // Keep only the latest version
+            db.execSQL("DELETE FROM version")
             db.execSQL("INSERT INTO version (db_version) VALUES (?)", arrayOf(newVersion))
         } catch (e: Exception) {
             Log.e("DatabaseHelper", "Error updating version: ${e.message}")
@@ -113,7 +118,7 @@ class DatabaseHelper(private val context: Context) : SQLiteOpenHelper(context, D
     }
 
     fun replaceDatabaseFile(inputStream: InputStream): Boolean {
-        this.close() // Close all connections before replacing file
+        this.close()
         val dbFile = context.getDatabasePath(DB_NAME)
         return try {
             val outputStream = FileOutputStream(dbFile)
@@ -239,7 +244,6 @@ class DatabaseHelper(private val context: Context) : SQLiteOpenHelper(context, D
             return emptyList()
         }
 
-        // Search for items where name contains the query (case-insensitive)
         val sql = "SELECT * FROM items WHERE name LIKE ? ORDER BY type DESC, name ASC"
         val params = arrayOf("%$query%")
 
