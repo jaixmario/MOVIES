@@ -2,8 +2,10 @@ package com.mario.movies
 
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -37,6 +39,8 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -82,6 +86,10 @@ fun FileBrowser(
     var generatedLinks by remember { mutableStateOf<Links?>(null) }
     var isGeneratingLink by remember { mutableStateOf(false) }
 
+    // Developer mode states
+    var tapCount by remember { mutableIntStateOf(0) }
+    var lastTapTime by remember { mutableLongStateOf(0L) }
+
     // Update state
     var isCheckingUpdates by remember { mutableStateOf(true) }
     var updateTrigger by remember { mutableStateOf(0) } // Used to refresh items after update
@@ -101,23 +109,18 @@ fun FileBrowser(
             searchQuery = ""
         } else if (currentPath != rootPath) {
             val parent = currentPath.substringBeforeLast('/')
-            // Ensure we don't go beyond the rootPath
-            currentPath = if (parent.length >= rootPath.length) {
-                 parent
-            } else {
-                 rootPath
-            }
+            currentPath = if (parent.length >= rootPath.length) parent else rootPath
         }
     }
 
-    var items by remember { mutableStateOf<List<FileItem>?>(null) } // Null indicates loading
+    var items by remember { mutableStateOf<List<FileItem>?>(null) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var debugInfo by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(currentPath, isSearching, searchQuery, updateTrigger, isCheckingUpdates) {
         if (isCheckingUpdates) return@LaunchedEffect
         
-        items = null // Start loading
+        items = null
         errorMsg = null
         debugInfo = null
         try {
@@ -125,7 +128,7 @@ fun FileBrowser(
                 if (isSearching && searchQuery.isNotEmpty()) {
                     dbHelper.searchItems(searchQuery)
                 } else if (isSearching && searchQuery.isEmpty()) {
-                    emptyList() // Don't show anything or show empty list if searching but empty query
+                    emptyList()
                 } else {
                     dbHelper.getItemsByPath(currentPath)
                 }
@@ -190,12 +193,7 @@ fun FileBrowser(
                 if (currentPath != rootPath) {
                     IconButton(onClick = { 
                         val parent = currentPath.substringBeforeLast('/')
-                        // Ensure we don't go beyond the rootPath
-                        currentPath = if (parent.length >= rootPath.length) {
-                             parent
-                        } else {
-                             rootPath
-                        }
+                        currentPath = if (parent.length >= rootPath.length) parent else rootPath
                     }) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -209,10 +207,33 @@ fun FileBrowser(
                 } else {
                     currentPath.removePrefix(rootPath).trimStart('/')
                 }
+                
                 Text(
                     text = displayTitle,
                     style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f).padding(start = 8.dp)
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 8.dp)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null // No ripple to keep it secret
+                        ) {
+                            if (currentPath == rootPath) {
+                                val now = System.currentTimeMillis()
+                                if (now - lastTapTime < 500) {
+                                    tapCount++
+                                } else {
+                                    tapCount = 1
+                                }
+                                lastTapTime = now
+                                
+                                if (tapCount == 7) {
+                                    tokenManager.setDevMode(true)
+                                    Toast.makeText(context, "Developer Mode Enabled", Toast.LENGTH_SHORT).show()
+                                    tapCount = 0
+                                }
+                            }
+                        }
                 )
                 
                 IconButton(onClick = { isSearching = true }) {
@@ -281,13 +302,11 @@ fun FileBrowser(
                                     isSearching = false
                                     searchQuery = ""
                                 } else {
-                                    // Handle file click
                                     dialogItem = item
                                     generatedLinks = null
                                     isGeneratingLink = false
                                     showDialog = true
                                     
-                                    // Start link generation automatically
                                     isGeneratingLink = true
                                     scope.launch {
                                         val links = tokenManager.getLinks(item.id)
@@ -327,9 +346,7 @@ fun FileBrowser(
                                             setDataAndType(Uri.parse(generatedLinks!!.downloadLink!!), "video/*")
                                         }
                                         context.startActivity(intent)
-                                    } catch (e: Exception) {
-                                        // Handle case where no app can open the link
-                                    }
+                                    } catch (e: Exception) {}
                                 },
                                 modifier = Modifier.fillMaxWidth()
                             ) {

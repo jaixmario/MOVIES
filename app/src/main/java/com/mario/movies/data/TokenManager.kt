@@ -36,13 +36,27 @@ class TokenManager(private val context: Context) {
         private const val GRAPH_ROOT = "https://graph.microsoft.com/v1.0"
         
         private const val DEFAULT_TOKEN_FILE = "user_token.json"
-        private const val MARIO_TOKEN_FILE = "user_token_mario.json" // Saved in filesDir
+        private const val MARIO_TOKEN_FILE = "user_token_mario.json"
         
         private const val ASSETS_DEFAULT_TOKEN = "user_token.json"
         private const val ASSETS_MARIO_TOKEN = "user_token2.json"
+        
+        private const val PREFS_NAME = "dev_prefs"
+        private const val KEY_DEV_MODE = "developer_mode"
+    }
+
+    private fun isDevMode(): Boolean {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean(KEY_DEV_MODE, false)
+    }
+    
+    fun setDevMode(enabled: Boolean) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(KEY_DEV_MODE, enabled).apply()
     }
     
     private suspend fun showToast(message: String) {
+        if (!isDevMode()) return
         withContext(Dispatchers.Main) {
             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
         }
@@ -70,17 +84,13 @@ class TokenManager(private val context: Context) {
         val fileName = if (isMario) MARIO_TOKEN_FILE else DEFAULT_TOKEN_FILE
         val assetsName = if (isMario) ASSETS_MARIO_TOKEN else ASSETS_DEFAULT_TOKEN
         
-        // 1. Check filesDir first (saved/refreshed tokens)
         val file = File(context.filesDir, fileName)
         if (file.exists()) {
              try {
                  return gson.fromJson(file.readText(), TokenData::class.java)
-             } catch (e: Exception) {
-                 // Corrupted file
-             }
+             } catch (e: Exception) {}
         }
         
-        // 2. Fallback to assets
         return try {
             val inputStream = context.assets.open(assetsName)
             val reader = InputStreamReader(inputStream)
@@ -159,7 +169,6 @@ class TokenManager(private val context: Context) {
         var downloadLink: String? = null
         var shareLink: String? = null
         
-        // 1. Get Download URL
         try {
             val url = "$GRAPH_ROOT/me/drive/items/$itemId"
             val request = Request.Builder()
@@ -176,13 +185,12 @@ class TokenManager(private val context: Context) {
                     downloadLink = responseObj.get("@microsoft.graph.downloadUrl").asString
                 }
             } else {
-                showToast("API Error ${response.code}: ${response.message}")
+                showToast("API Error ${response.code}")
             }
         } catch (e: Exception) {
             showToast("API Exception: ${e.message}")
         }
         
-        // 2. Create Share Link
         try {
             val url = "$GRAPH_ROOT/me/drive/items/$itemId/createLink"
             val jsonBody = """
